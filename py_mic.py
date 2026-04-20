@@ -11,7 +11,7 @@ WS_URL = f"ws://{PC_IP}:{PORT}/ws/rpi_unit_01"
 # Audio Settings (Match what Whisper expects)
 SAMPLERATE = 16000 
 CHANNELS = 1
-DEVICE_ID = 2 # Your Razer Seiren Mini ID
+DEVICE_ID = 0 # Your Razer Seiren Mini ID
 
 async def stream_mic():
     print(f"Connecting to PC at {WS_URL}...")

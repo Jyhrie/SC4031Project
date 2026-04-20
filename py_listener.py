@@ -1,37 +1,34 @@
+import asyncio
+import websockets
 import numpy as np
 import sounddevice as sd
-import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
-app = FastAPI()
-
-# Audio Settings (Must match the RPi settings)
+# Audio Settings
 SAMPLERATE = 16000
 CHANNELS = 1
 
-print(f"🔊 PC Speakers Ready. Waiting for RPi audio...")
+print(f"🔊 PC Speakers Ready. Waiting for RPi audio on port 8000...")
 
-@app.websocket("/ws/{device_id}")
-async def websocket_endpoint(websocket: WebSocket, device_id: str):
-    await websocket.accept()
-    print(f"🔗 Linked to {device_id}. Playing audio...")
-    
+async def audio_handler(websocket):
+    print(f"🔗 Remote device connected!")
     try:
-        while True:
+        async for message in websocket:
             # 1. Receive the raw 16-bit PCM bytes
-            data = await websocket.receive_bytes()
+            # 2. Convert to float32 for sounddevice
+            audio_array = np.frombuffer(message, dtype=np.int16).astype(np.float32) / 32768.0
             
-            # 2. Convert to float32 (the format sounddevice likes)
-            audio_array = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
-            
-            # 3. Play it instantly
-            # 'blocking=False' is critical so it doesn't freeze the websocket
+            # 3. Play instantly
             sd.play(audio_array, samplerate=SAMPLERATE, blocking=False)
-
-    except WebSocketDisconnect:
-        print(f"❌ {device_id} disconnected.")
+            
+    except websockets.exceptions.ConnectionClosed:
+        print("❌ Device disconnected.")
     except Exception as e:
         print(f"⚠️ Error: {e}")
 
+async def main():
+    # '0.0.0.0' allows connections from your local network
+    async with websockets.serve(audio_handler, "0.0.0.0", 8000):
+        await asyncio.Future()  # Run forever
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    asyncio.run(main())
