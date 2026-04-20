@@ -4,7 +4,7 @@ import sounddevice as sd
 import numpy as np
 
 # --- CONFIG ---
-PC_IP = "192.168.x.x"  # <--- REPLACE WITH YOUR PC'S IP
+PC_IP = "192.168.18.73"  # <--- REPLACE WITH YOUR PC'S IP
 PORT = 8000
 WS_URL = f"ws://{PC_IP}:{PORT}/ws/rpi_unit_01"
 
