@@ -132,6 +132,7 @@ def audio_callback(indata, frames, time_info, status):
             
             if score > CONFIDENCE_THRESHOLD:
                 print(f">>> KEYWORD DETECTED! Starting 4s stream...")
+                audio_buffer = np.zeros(WINDOW_SIZE, dtype='float32')
                 SAMPLES_SINCE_LAST_DETECTION = 0
                 
                 # Trigger the stream
