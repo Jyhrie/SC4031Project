@@ -144,11 +144,16 @@ def audio_callback(indata, frames, time_info, status):
 
 async def websocket_sender():
     print(f"Connecting to server at {WS_URL}...")
-    async with websockets.connect(WS_URL) as ws:
-        print("✅ WebSocket Connected!")
-        while True:
-            data = audio_queue.get_nowait()
-            await ws.send(data)
+    try:
+        async with websockets.connect(WS_URL) as ws:
+            print("✅ WebSocket Connected!")
+            while True:
+                data = await audio_queue.get()
+                
+                await ws.send(data)
+                print(f"Sent {len(data)} bytes to server")
+    except Exception as e:
+        print(f"❌ WebSocket Error: {e}")
 
 
 
