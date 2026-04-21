@@ -126,7 +126,7 @@ def audio_callback(indata, frames, time_info, status):
         if score > CONFIDENCE_THRESHOLD:
             print(f">>> KEYWORD DETECTED: Hey Home ({score*100:.1f}%)")
             f_stream_enabled = True
-            stream_start_time = time.now()
+            stream_start_time = time.time()
 
     if f_stream_enabled:
         audio_queue.put(indata.tobytes())
@@ -141,7 +141,7 @@ async def websocket_sender():
         while f_stream_enabled:
             data = audio_queue.get_nowait()
             await ws.send(data)
-            if time.now() - stream_start_time > 4:
+            if time.time() - stream_start_time > 4:
                 f_stream_enabled = False
 
 # async def main():
