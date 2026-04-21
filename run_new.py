@@ -71,6 +71,7 @@ def compute_manual_mfcc(audio):
 def predict(audio_data):
     # Get Manual MFCCs
     mfcc = compute_manual_mfcc(audio_data)
+    print(f"Mean MFCC: {np.mean(mfcc):.2f}, Std Dev: {np.std(mfcc):.2f}")
 
     # Quantization logic for INT8 [cite: 66, 68]
     input_scale, input_zero_point = input_details['quantization']
