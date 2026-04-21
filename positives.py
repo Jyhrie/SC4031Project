@@ -7,7 +7,7 @@ SR = 16000
 DURATION = 2.0
 SAMPLES = int(SR * DURATION)
 OUTPUT_FOLDER = "dataset/raw_hey_home"
-DEVICE_ID = 1 
+DEVICE_ID = 2 
 
 if not os.path.exists(OUTPUT_FOLDER): os.makedirs(OUTPUT_FOLDER)
 
