@@ -37,6 +37,7 @@ print("Using Device ID:", DEVICE_ID)
 event_queue = asyncio.Queue()
 audio_queue = queue.Queue()
 stream_start_time = None
+f_stream_enabled = False
 
 try:
     import tflite_runtime.interpreter as tflite
