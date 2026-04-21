@@ -82,26 +82,34 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
 
 # 2. Model Architecture (Bottlenecked for RAM)
 model = models.Sequential([
-    layers.Input(shape=(X.shape[1], X.shape[2], 1)),
+    # Input remains the same (MFCC frames, coefficients, 1 channel)
+    layers.Input(shape=(124, 13, 1)),
     
-    # Layer 1: Standard Conv to start (keeps accuracy high)
-    layers.Conv2D(32, (3, 3), activation='relu', padding='same'),
+    # Layer 1: More filters to capture basic audio edges
+    layers.Conv2D(64, (3, 3), padding='same'),
+    layers.BatchNormalization(), # Stabilizes learning
+    layers.Activation('relu'),
     layers.MaxPooling2D((2, 2)),
     
-    # Layer 2: Depthwise Separable (Saves massive amounts of space)
-    layers.SeparableConv2D(32, (3, 3), activation='relu', padding='same'),
+    # Layer 2: Deeper features (no longer need SeparableConv)
+    layers.Conv2D(128, (3, 3), padding='same'),
+    layers.BatchNormalization(),
+    layers.Activation('relu'),
     layers.MaxPooling2D((2, 2)),
 
-    layers.SeparableConv2D(16, (3, 3), activation='relu', padding='same'),
-    layers.MaxPooling2D((2, 2)),
+    # Layer 3: High-level abstraction
+    layers.Conv2D(128, (3, 3), padding='same'),
+    layers.BatchNormalization(),
+    layers.Activation('relu'),
+    layers.GlobalAveragePooling2D(), # Flattens the data for the classifier
     
-    layers.GlobalAveragePooling2D(), 
-    layers.Dense(64, activation='relu'),
-    layers.Dropout(0.5), 
-    layers.Dense(len(CLASSES), activation='softmax')
+    # Classifier: Larger dense layer for better reasoning
+    layers.Dense(128, activation='relu'),
+    layers.Dropout(0.3), # Prevents overfitting to your specific Pi mic
+    layers.Dense(1, activation='sigmoid') # Your single "Is this it?" output
 ])
 
-model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
 early_stop = EarlyStopping(
     monitor='val_loss', 

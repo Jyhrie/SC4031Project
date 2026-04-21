@@ -1,6 +1,9 @@
+import asyncio
 import numpy as np
 import sounddevice as sd
 from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
+import websockets
+import time
 
 # --- Configuration (Matches tinyml_proj.ino) ---
 MODEL_PATH = "model.tflite"
@@ -13,13 +16,16 @@ HOP_LENGTH = 256
 N_FRAMES = 124
 CLASSES = ["ON", "OFF", "UNKNOWN"]
 DEVICE_ID = 2
-CONFIDENCE_THRESHOLD = 0.80
-
-
+CONFIDENCE_THRESHOLD = 0.90
 
 # Pre-compute Hann Window once
 HANN_WINDOW = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
 print("Using Device ID:", DEVICE_ID)
+
+SERVER_URL = "ws://192.168.18.73:8000/ws/audio" 
+SAMPLE_RATE = 16000
+STREAM_SECONDS = 4  # How long to stream after detection
+audio_queue = asyncio.Queue()
 
 try:
     import tflite_runtime.interpreter as tflite
@@ -93,19 +99,60 @@ def predict(audio_data):
     return prob
 
 def audio_callback(indata, frames, time_info, status):
-    global audio_buffer
-    if status: print(status)
+    global is_streaming, stream_timeout
+    global audio_buffer, loop
     
-    # Roll and update buffer
+    if status: 
+        print(f"Status: {status}")
+    
+    # 1. Update the rolling buffer for the TFLite model
     audio_buffer = np.roll(audio_buffer, -len(indata))
     audio_buffer[-len(indata):] = indata[:, 0]
 
-    # Quick volume check to avoid unnecessary CPU usage
-    if np.sqrt(np.mean(audio_buffer**2)) > 0.01:
-        score = predict(audio_buffer)
-        print(f"Predicted Score: {score:.4f}")
-        if score > CONFIDENCE_THRESHOLD:
-            print(f">>> KEYWORD DETECTED: Hey Home ({score*100:.1f}%)")
+    # 2. Logic while NOT streaming (Looking for Wake Word)
+    if not is_streaming:
+        # Quick volume gate to save CPU
+        rms = np.sqrt(np.mean(audio_buffer**2))
+        if rms > 0.01:
+            score = predict(audio_buffer)
+            
+            # Inverse logic: low score (< 0.15) means "Hey Home" was detected
+            if score < (1.0 - CONFIDENCE_THRESHOLD): 
+                print(f">>> KEYWORD DETECTED! Confidence: {(1.0 - score)*100:.1f}%")
+                is_streaming = True
+                stream_timeout = time.time() + STREAM_SECONDS
+    
+    # 3. Logic while streaming (Sending data to Server)
+    if is_streaming:
+        # Send raw bytes to the async queue
+        # indata contains the most recent chunk of audio
+        try:
+            loop.call_soon_threadsafe(audio_queue.put_nowait, indata.copy().tobytes())
+        except Exception as e:
+            print(f"Queue Error: {e}")
+
+        # Check if we should stop streaming
+        if time.time() > stream_timeout:
+            print(">>> Streaming Window Closed.")
+            is_streaming = False
+
+async def websocket_sender():
+    """The async loop that manages the connection"""
+    global is_streaming
+    print(f"Connecting to server at {SERVER_URL}...")
+    
+    while True:
+        try:
+            async with websockets.connect(SERVER_URL) as ws:
+                print("Connected! Waiting for keyword...")
+                while True:
+                    # Wait for data to appear in the queue
+                    audio_bytes = await audio_queue.get()
+                    await ws.send(audio_bytes)
+                    
+        except Exception as e:
+            print(f"Connection lost ({e}). Retrying in 3s...")
+            await asyncio.sleep(3)
 
 # --- Scanning & Listening ---
 print("Scanning Devices...")
