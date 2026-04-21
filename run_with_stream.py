@@ -21,7 +21,6 @@ DEVICE_ID = 2
 CONFIDENCE_THRESHOLD = 0.90
 SAMPLERATE = 16000 
 CHANNELS = 1
-DEVICE_ID = 0 
 BLOCKSIZE = 1600 # 0.1 seconds of audio per packet
 
 # Pre-compute Hann Window once
