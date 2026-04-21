@@ -12,13 +12,14 @@ N_FFT = 512
 HOP_LENGTH = 256
 N_FRAMES = 124
 CLASSES = ["ON", "OFF", "UNKNOWN"]
-DEVICE_ID = 1 
+DEVICE_ID = 2 
 CONFIDENCE_THRESHOLD = 0.80
 
 
 
 # Pre-compute Hann Window once
 HANN_WINDOW = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
+print("Using Device ID:", DEVICE_ID)
 
 try:
     import tflite_runtime.interpreter as tflite
