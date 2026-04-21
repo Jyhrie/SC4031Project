@@ -1,6 +1,12 @@
+import asyncio
+
 import numpy as np
 import sounddevice as sd
 from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
+import websockets
+
+
+DEVICE_ID = 2
 
 # --- Configuration (Matches tinyml_proj.ino) ---
 MODEL_PATH = "model.tflite"
@@ -11,15 +17,22 @@ N_MFCC = 13
 N_FFT = 512
 HOP_LENGTH = 256
 N_FRAMES = 124
-CLASSES = ["ON", "OFF", "UNKNOWN"]
-DEVICE_ID = 2
 CONFIDENCE_THRESHOLD = 0.80
+SAMPLES_SINCE_LAST_DETECTION = 0
+MIN_DETECTION_GAP = 8000  # 1.0 second cooldown (at 16kHz)
+INITIAL_WARMUP_SAMPLES = 0
+STREAMING_BLOCKS_REMAINING = 0
+BLOCKS_TO_STREAM = 8
 
-
+PC_IP = "192.168.18.73"
+PORT = 8000
+WS_URL = f"ws://{PC_IP}:{PORT}" # Match the new direct listener
 
 # Pre-compute Hann Window once
 HANN_WINDOW = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
 print("Using Device ID:", DEVICE_ID)
+
+event_queue = asyncio.Queue()
 
 try:
     import tflite_runtime.interpreter as tflite
@@ -93,27 +106,78 @@ def predict(audio_data):
     return prob
 
 def audio_callback(indata, frames, time_info, status):
-    global audio_buffer
+    global audio_buffer, SAMPLES_SINCE_LAST_DETECTION, STREAMING_BLOCKS_REMAINING
     if status: print(status)
     
-    # Roll and update buffer
+    # 1. Update the sliding window buffer
     audio_buffer = np.roll(audio_buffer, -len(indata))
     audio_buffer[-len(indata):] = indata[:, 0]
 
-    # Quick volume check to avoid unnecessary CPU usage
+    # 2. Check if we are currently in "Streaming Mode"
+    if STREAMING_BLOCKS_REMAINING > 0:
+        # Send the most recent chunk (STEP_SIZE) to the server
+        loop.call_soon_threadsafe(event_queue.put_nowait, indata.tobytes())
+        STREAMING_BLOCKS_REMAINING -= 1
+        return # Skip prediction while streaming
+
+    # 3. Standard Keyword Detection Logic
+    SAMPLES_SINCE_LAST_DETECTION += len(indata)
     if np.sqrt(np.mean(audio_buffer**2)) > 0.01:
-        score = predict(audio_buffer)
-        print(f"Predicted Score: {score:.4f}")
-        if score > CONFIDENCE_THRESHOLD:
-            print(f">>> KEYWORD DETECTED: Hey Home ({score*100:.1f}%)")
+        if SAMPLES_SINCE_LAST_DETECTION > MIN_DETECTION_GAP:
+            score = predict(audio_buffer)
+            
+            if score > CONFIDENCE_THRESHOLD:
+                print(f">>> KEYWORD DETECTED! Starting 4s stream...")
+                SAMPLES_SINCE_LAST_DETECTION = 0
+                
+                # Trigger the stream
+                STREAMING_BLOCKS_REMAINING = BLOCKS_TO_STREAM
+                
+                # OPTIONAL: Send the PREVIOUS 2 seconds (the buffer that had the keyword) 
+                # so the server hears the "Hey Home" part too
+                loop.call_soon_threadsafe(event_queue.put_nowait, audio_buffer.tobytes())
 
-# --- Scanning & Listening ---
-print("Scanning Devices...")
-print(sd.query_devices())
+async def websocket_sender():
+    print(f"Connecting to server at {WS_URL}...")
+    async with websockets.connect(WS_URL) as ws:
+        print("✅ WebSocket Connected!")
+        while True:
+            data = await event_queue.get()
+            await ws.send(data)
 
-with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1, 
-                    callback=audio_callback, blocksize=STEP_SIZE):
-    print(f"--- RPi Manual Listener Active ---")
+
+
+async def main():
+    global loop
+    loop = asyncio.get_running_loop()
+
+    # --- Scanning & Listening ---
+    print("Scanning Devices...")
+    print(sd.query_devices())
+
+    # Start the Microphone Stream
+    stream = sd.InputStream(
+        samplerate=SAMPLE_RATE, 
+        device=DEVICE_ID, 
+        channels=1, 
+        callback=audio_callback, 
+        blocksize=STEP_SIZE
+    )
+
+    with stream:
+        print("--- RPi Local Inference + WebSocket Active ---")
+        # Run the sender task
+        await websocket_sender()
+
+if __name__ == "__main__":
     try:
-        while True: sd.sleep(1000)
-    except KeyboardInterrupt: print("\nStopped.")
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+# with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1, 
+#                     callback=audio_callback, blocksize=STEP_SIZE):
+#     print(f"--- RPi Manual Listener Active ---")
+#     try:
+#         while True: sd.sleep(1000)
+#     except KeyboardInterrupt: print("\nStopped.")
