@@ -143,35 +143,40 @@ async def websocket_sender():
             if time.now() - stream_start_time > 4:
                 f_stream_enabled = False
 
+# async def main():
+#     global loop
+#     loop = asyncio.get_running_loop()
+
+#     # --- Scanning & Listening ---
+#     print("Scanning Devices...")
+#     print(sd.query_devices())
+
+#     # Start the Microphone Stream
+#     stream = sd.InputStream(
+#         samplerate=SAMPLE_RATE, 
+#         device=DEVICE_ID, 
+#         channels=1, 
+#         callback=audio_callback, 
+#         blocksize=STEP_SIZE
+#     )
+
+#     with stream:
+#         print("--- RPi Local Inference + WebSocket Active ---")
+#         # Run the sender task
+#         await websocket_sender()
 
 
-async def main():
-    global loop
-    loop = asyncio.get_running_loop()
-
-    # --- Scanning & Listening ---
-    print("Scanning Devices...")
-    print(sd.query_devices())
-
-    # Start the Microphone Stream
-    stream = sd.InputStream(
-        samplerate=SAMPLE_RATE, 
-        device=DEVICE_ID, 
-        channels=1, 
-        callback=audio_callback, 
-        blocksize=STEP_SIZE
-    )
-
-    with stream:
-        print("--- RPi Local Inference + WebSocket Active ---")
-        # Run the sender task
-        await websocket_sender()
-
-if __name__ == "__main__":
+with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1, 
+                    callback=audio_callback, blocksize=STEP_SIZE):
+    print(f"--- RPi Manual Listener Active ---")
     try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nStopped.")
+        while True: sd.sleep(1000)
+    except KeyboardInterrupt: print("\nStopped.")
+# if __name__ == "__main__":
+#     try:
+#         asyncio.run(main())
+#     except KeyboardInterrupt:
+#         print("\nStopped.")
 
 # with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1, 
 #                     callback=audio_callback, blocksize=STEP_SIZE):
