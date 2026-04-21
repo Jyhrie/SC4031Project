@@ -1,6 +1,6 @@
 import asyncio
 import queue
-from time import time
+import time
 
 import numpy as np
 import sounddevice as sd
@@ -130,6 +130,9 @@ def audio_callback(indata, frames, time_info, status):
 
     if f_stream_enabled:
         audio_queue.put(indata.tobytes())
+        if f_stream_enabled and (time.time() - stream_start_time) > 4:
+            f_stream_enabled = False
+            print(">>> Stream Ended")
             
 
 async def websocket_sender():
