@@ -88,95 +88,6 @@ def predict(audio_data):
 
     # De-quantize Output [cite: 73, 74]
     output_data = interpreter.get_tensor(output_details['index'])
-Since you are moving to a more complex architecture and using a Sigmoid output on the Raspberry Pi, you need to update your run_new.py to handle the single-output logic and take advantage of the Pi's resources.
-
-Here is the updated inference script. I have adjusted the prediction logic, added the Sigmoid thresholding, and included the Batch Normalization compatibility.
-
-Updated run_new.py
-Python
-import numpy as np
-import sounddevice as sd
-import time
-from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
-
-# --- Configuration ---
-MODEL_PATH = "model_pi.tflite" # Update to your new complex model
-SAMPLE_RATE = 16000
-WINDOW_SIZE = 32000  
-STEP_SIZE = 8000     
-N_MFCC = 13
-N_FFT = 512
-HOP_LENGTH = 256
-N_FRAMES = 124 # Matches the dimension fix we discussed
-DEVICE_ID = 2  # Hardcoded to 'hw:2,0' for your Razer Seiren Mini
-CONFIDENCE_THRESHOLD = 0.85 # Sigmoid probability threshold
-
-# Pre-compute Hann Window
-HANN_WINDOW = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
-
-try:
-    import tflite_runtime.interpreter as tflite
-    tflite_interpreter = tflite.Interpreter
-except ImportError:
-    import tensorflow as tf
-    tflite_interpreter = tf.lite.Interpreter
-
-# 1. Initialize TFLite
-interpreter = tflite_interpreter(model_path=MODEL_PATH)
-interpreter.allocate_tensors()
-input_details = interpreter.get_input_details()[0]
-output_details = interpreter.get_output_details()[0]
-
-audio_buffer = np.zeros(WINDOW_SIZE, dtype='float32')
-
-def compute_manual_mfcc(audio):
-    """Replicates the Pi-specific preprocessing"""
-    # 1. DC Offset Removal
-    audio = audio - np.mean(audio)
-    
-    # 2. Peak Normalization (To match your new training data)
-    peak = np.max(np.abs(audio))
-    if peak > 0.001:
-        audio = audio / peak
-    
-    mfcc_buf = np.zeros((N_FRAMES, N_MFCC))
-    
-    for frame_idx in range(N_FRAMES):
-        start = frame_idx * HOP_LENGTH
-        end = start + N_FFT
-        if end > len(audio): break
-            
-        frame = audio[start : end] * HANN_WINDOW
-        
-        # FFT Magnitude (Using Magnitude instead of Power for stability)
-        fft_res = np.abs(np.fft.rfft(frame, n=N_FFT))
-        
-        # Apply Weights
-        mel_spectrum = np.dot(MEL_FILTER_BANK, fft_res)
-        log_mel = np.log(mel_spectrum + 1e-9) # Using natural log for standard scaling
-        
-        mfcc_buf[frame_idx] = np.dot(DCT_MATRIX, log_mel)
-        
-    return mfcc_buf
-
-def predict(audio_data):
-    mfcc = compute_manual_mfcc(audio_data)
-
-    # Quantization logic
-    input_scale, input_zero_point = input_details['quantization']
-    output_scale, output_zero_point = output_details['quantization']
-    
-    mfcc_quantized = (mfcc / input_scale) + input_zero_point
-    mfcc_quantized = np.clip(mfcc_quantized, -128, 127)
-    mfcc_quantized = mfcc_quantized[np.newaxis, ..., np.newaxis].astype(np.int8)
-
-    # Run Inference
-    interpreter.set_tensor(input_details['index'], mfcc_quantized)
-    interpreter.invoke()
-
-    # --- SIGMOID LOGIC ---
-    output_data = interpreter.get_tensor(output_details['index'])
-    # De-quantize the single probability value
     prob = (output_data[0][0].astype(np.float32) - output_zero_point) * output_scale
     
     return prob
@@ -192,7 +103,7 @@ def audio_callback(indata, frames, time_info, status):
     # Quick volume check to avoid unnecessary CPU usage
     if np.sqrt(np.mean(audio_buffer**2)) > 0.01:
         score = predict(audio_buffer)
-        print(f"Score: {score}")
+        print(f"Predicted Score: {score:.4f}")
         if score > CONFIDENCE_THRESHOLD:
             print(f">>> KEYWORD DETECTED: Hey Home ({score*100:.1f}%)")
 
