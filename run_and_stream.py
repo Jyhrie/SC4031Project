@@ -103,27 +103,23 @@ def start_ws_thread():
 
 def send_audio(audio_samples: np.ndarray):
     """Send audio over the persistent connection without dropping it."""
-    global is_streaming, stream_buffer, stream_samples_collected
-
+    # (Removed the global stream variables from here)
     if ws_connection is None:
         print("No WebSocket connection — dropping audio.")
-    else:
-        audio_bytes = audio_samples.astype(np.float32).tobytes()
-        future = asyncio.run_coroutine_threadsafe(
-            ws_connection.send(audio_bytes),
-            ws_loop
-        )
-        try:
-            # Pushing out 4s of audio might take a brief moment, timeout is generous
-            future.result(timeout=10)
-            print(f"Audio sent ({len(audio_bytes)} bytes).")
-        except Exception as e:
-            print(f"Send error: {e}")
+        return
 
-    # Reset streaming state and re-enable inference
-    stream_buffer = []
-    stream_samples_collected = 0
-    is_streaming = False
+    audio_bytes = audio_samples.astype(np.float32).tobytes()
+    future = asyncio.run_coroutine_threadsafe(
+        ws_connection.send(audio_bytes),
+        ws_loop
+    )
+    try:
+        # Pushing out 4s of audio might take a brief moment, timeout is generous
+        future.result(timeout=10)
+        print(f"Audio sent ({len(audio_bytes)} bytes).")
+    except Exception as e:
+        print(f"Send error: {e}")
+
     print("--- Inference resumed ---")
 
 
@@ -168,7 +164,6 @@ def predict(audio_data):
 
     return prob
 
-
 def audio_callback(indata, frames, time_info, status):
     global audio_buffer, is_streaming, stream_buffer, stream_samples_collected
 
@@ -187,7 +182,12 @@ def audio_callback(indata, frames, time_info, status):
         if stream_samples_collected >= STREAM_SAMPLES:
             full_audio = np.concatenate(stream_buffer)
             print(f"Captured {len(full_audio)} samples. Streaming to PC...")
-            # Use the new send_audio function instead of the old connect/drop function
+            
+            # --- FIX: Reset state immediately so it doesn't double-trigger ---
+            is_streaming = False
+            stream_buffer = []
+            stream_samples_collected = 0
+            
             t = threading.Thread(target=send_audio, args=(full_audio,), daemon=True)
             t.start()
         return
