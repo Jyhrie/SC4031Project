@@ -6,6 +6,8 @@ bin/
 lib/
 share/
 /dataset_old/*
+/dataset/hey_home/*
+/dataset/other/*
 
 # Python cache
 __pycache__/
