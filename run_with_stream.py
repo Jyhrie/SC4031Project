@@ -27,6 +27,9 @@ SAMPLE_RATE = 16000
 STREAM_SECONDS = 4  # How long to stream after detection
 audio_queue = asyncio.Queue()
 
+is_streaming = False
+stream_timeout = 0
+
 try:
     import tflite_runtime.interpreter as tflite
     tflite_interpreter = tflite.Interpreter
