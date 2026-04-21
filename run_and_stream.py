@@ -1,43 +1,33 @@
-import asyncio
-import queue
-import time
-
 import numpy as np
 import sounddevice as sd
-from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
+import asyncio
 import websockets
-
-
-DEVICE_ID = 2
+import threading
+from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
 
 # --- Configuration (Matches tinyml_proj.ino) ---
 MODEL_PATH = "model.tflite"
 SAMPLE_RATE = 16000
 WINDOW_SIZE = 32000  # TARGET_SAMPLES
-STEP_SIZE = 8000     
+STEP_SIZE = 8000
 N_MFCC = 13
 N_FFT = 512
 HOP_LENGTH = 256
 N_FRAMES = 124
+CLASSES = ["ON", "OFF", "UNKNOWN"]
+DEVICE_ID = 2
 CONFIDENCE_THRESHOLD = 0.80
-SAMPLES_SINCE_LAST_DETECTION = 0
-MIN_DETECTION_GAP = 8000  # 1.0 second cooldown (at 16kHz)
-INITIAL_WARMUP_SAMPLES = 0
-STREAMING_BLOCKS_REMAINING = 0
-BLOCKS_TO_STREAM = 8
 
 PC_IP = "192.168.18.73"
 PORT = 8000
-WS_URL = f"ws://{PC_IP}:{PORT}" # Match the new direct listener
+WS_URL = f"ws://{PC_IP}:{PORT}"
+
+STREAM_DURATION = 4       # seconds to stream after keyword
+STREAM_SAMPLES = SAMPLE_RATE * STREAM_DURATION  # 64000 samples
 
 # Pre-compute Hann Window once
 HANN_WINDOW = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
 print("Using Device ID:", DEVICE_ID)
-
-event_queue = asyncio.Queue()
-audio_queue = asyncio.Queue() 
-f_stream_enabled = False
-stream_start_time = 0
 
 try:
     import tflite_runtime.interpreter as tflite
@@ -54,109 +44,127 @@ output_details = interpreter.get_output_details()[0]
 
 audio_buffer = np.zeros(WINDOW_SIZE, dtype='float32')
 
+# --- State flags ---
+is_streaming = False          # True while capturing/sending post-keyword audio
+stream_buffer = []            # Accumulates raw samples during streaming phase
+stream_samples_collected = 0  # How many samples collected so far
+
+
 def compute_manual_mfcc(audio):
-    """Replicates computeMFCC() from Arduino [cite: 32-45]"""
-    # 1. DC Offset Removal [cite: 33]
+    """Replicates computeMFCC() from Arduino"""
     audio = audio - np.mean(audio)
     mfcc_buf = np.zeros((N_FRAMES, N_MFCC))
-    # 2. Frame Processing Loop [cite: 35]
+
     for frame_idx in range(N_FRAMES):
         start = frame_idx * HOP_LENGTH
-        if start + N_FFT > len(audio): break
-            
-        # Step 1: Apply Hann Window [cite: 36]
-        # Audio is already float32 (-1.0 to 1.0), matching Arduino scaling [cite: 36]
-        frame = audio[start : start + N_FFT] * HANN_WINDOW
-        
-        # Step 2: FFT and Power Spectrum [cite: 37, 38]
+        if start + N_FFT > len(audio):
+            break
+
+        frame = audio[start: start + N_FFT] * HANN_WINDOW
         fft_res = np.fft.rfft(frame, n=N_FFT)
-        power_spectrum = np.abs(fft_res)**2
-        
-        # Step 3: Apply Mel Filter Bank [cite: 40, 41]
+        power_spectrum = np.abs(fft_res) ** 2
         mel_spectrum = np.dot(MEL_FILTER_BANK, power_spectrum)
-        
-        # Step 4: Log Scale [cite: 42]
         safe_mel = np.maximum(mel_spectrum, 1e-10)
         log_mel = 10.0 * np.log10(safe_mel)
-        
-        # Step 5: DCT Matrix Multiplication 
         mfcc_buf[frame_idx] = np.dot(DCT_MATRIX, log_mel)
-        
+
     return mfcc_buf
 
+
 def predict(audio_data):
-    # Get Manual MFCCs
     mfcc = compute_manual_mfcc(audio_data)
     print(f"Mean MFCC: {np.mean(mfcc):.2f}, Std Dev: {np.std(mfcc):.2f}")
     mfcc = (mfcc + 11.5) * (110.0 / 65.0) - 30.0
 
-    # Quantization logic for INT8 [cite: 66, 68]
     input_scale, input_zero_point = input_details['quantization']
     output_scale, output_zero_point = output_details['quantization']
-    
+
     mfcc_quantized = (mfcc / input_scale) + input_zero_point
     mfcc_quantized = np.clip(mfcc_quantized, -128, 127)
     mfcc_quantized = mfcc_quantized[np.newaxis, ..., np.newaxis].astype(np.int8)
 
-    # Run Inference [cite: 70]
     interpreter.set_tensor(input_details['index'], mfcc_quantized)
     interpreter.invoke()
 
-    # De-quantize Output [cite: 73, 74]
     output_data = interpreter.get_tensor(output_details['index'])
     prob = (output_data[0][0].astype(np.float32) - output_zero_point) * output_scale
-    
+
     return prob
 
-def audio_callback(indata, frames, time_info, status):
-    global audio_buffer, f_stream_enabled, stream_start_time
-    if status: print(status)
-    if not f_stream_enabled:
-        # Roll and update buffer
-        audio_buffer = np.roll(audio_buffer, -len(indata))
-        audio_buffer[-len(indata):] = indata[:, 0]
-        # Quick volume check to avoid unnecessary CPU usage
-        if np.sqrt(np.mean(audio_buffer**2)) > 0.01:
-            score = predict(audio_buffer)
-            print(f"Predicted Score: {score:.4f}")
-            if score > CONFIDENCE_THRESHOLD:
-                print(f">>> KEYWORD DETECTED: Hey Home ({score*100:.1f}%)")
-                f_stream_enabled = True
-                stream_start_time = time.time()
 
-    if f_stream_enabled:
-        audio_queue.put(indata.tobytes())
-        if f_stream_enabled and (time.time() - stream_start_time) > 4:
-            f_stream_enabled = False
-            print(">>> Stream Ended")
-            
-
-async def websocket_sender():
-    print(f"Connecting to {WS_URL}...")
-    async with websockets.connect(WS_URL) as ws:
-        print("✅ WebSocket Connected!")
-        while True:
-            data = await audio_queue.get()
-            await ws.send(data)
-
-async def main():
-    global loop
-    loop = asyncio.get_running_loop()
-
-    stream = sd.InputStream(
-        samplerate=SAMPLE_RATE, 
-        device=DEVICE_ID, 
-        channels=1, 
-        callback=audio_callback, 
-        blocksize=STEP_SIZE
-    )
-
-    with stream:
-        print("--- RPi Local Inference + WebSocket Active ---")
-        await websocket_sender()
-
-if __name__ == "__main__":
+async def send_audio_over_websocket(audio_samples: np.ndarray):
+    """Connect to PC, send raw float32 audio bytes, then disconnect."""
+    audio_bytes = audio_samples.astype(np.float32).tobytes()
+    print(f"Connecting to {WS_URL} ...")
     try:
-        asyncio.run(main())
+        async with websockets.connect(WS_URL) as ws:
+            print(f"Connected. Sending {len(audio_samples)} samples ({len(audio_bytes)} bytes)...")
+            await ws.send(audio_bytes)
+            print("Audio sent. Closing connection.")
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+
+
+def stream_and_resume(audio_samples: np.ndarray):
+    """Run the async WebSocket send in a dedicated thread, then re-enable inference."""
+    global is_streaming, stream_buffer, stream_samples_collected
+
+    asyncio.run(send_audio_over_websocket(audio_samples))
+
+    # Reset streaming state and re-enable inference
+    stream_buffer = []
+    stream_samples_collected = 0
+    is_streaming = False
+    print("--- Inference resumed ---")
+
+
+def audio_callback(indata, frames, time_info, status):
+    global audio_buffer, is_streaming, stream_buffer, stream_samples_collected
+
+    if status:
+        print(status)
+
+    chunk = indata[:, 0].copy()
+
+    # ── STREAMING PHASE ──────────────────────────────────────────────────────
+    if is_streaming:
+        remaining = STREAM_SAMPLES - stream_samples_collected
+        to_take = min(len(chunk), remaining)
+        stream_buffer.append(chunk[:to_take])
+        stream_samples_collected += to_take
+
+        if stream_samples_collected >= STREAM_SAMPLES:
+            # Got all 4 seconds — fire off the WebSocket send in a background thread
+            full_audio = np.concatenate(stream_buffer)
+            print(f"Captured {len(full_audio)} samples. Streaming to PC...")
+            t = threading.Thread(target=stream_and_resume, args=(full_audio,), daemon=True)
+            t.start()
+        return  # Skip inference while streaming
+
+    # ── INFERENCE PHASE ──────────────────────────────────────────────────────
+    audio_buffer = np.roll(audio_buffer, -len(chunk))
+    audio_buffer[-len(chunk):] = chunk
+
+    if np.sqrt(np.mean(audio_buffer ** 2)) > 0.01:
+        score = predict(audio_buffer)
+        print(f"Predicted Score: {score:.4f}")
+
+        if score > CONFIDENCE_THRESHOLD:
+            print(f">>> KEYWORD DETECTED: Hey Home ({score * 100:.1f}%) — pausing inference, streaming next {STREAM_DURATION}s")
+            is_streaming = True
+            stream_buffer = []
+            stream_samples_collected = 0
+
+
+# --- Scanning & Listening ---
+print("Scanning Devices...")
+print(sd.query_devices())
+
+with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1,
+                    callback=audio_callback, blocksize=STEP_SIZE):
+    print(f"--- RPi Manual Listener Active ---")
+    try:
+        while True:
+            sd.sleep(1000)
     except KeyboardInterrupt:
         print("\nStopped.")
