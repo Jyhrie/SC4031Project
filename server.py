@@ -12,6 +12,8 @@ print(f"Loading Whisper '{WHISPER_MODEL}'...")
 model = whisper.load_model(WHISPER_MODEL)
 print(f"✅ Whisper ready. Listening on port {PORT}...")
 
+active_clients = {}
+
 transcription_queue = asyncio.Queue()
 
 
@@ -34,17 +36,26 @@ async def transcription_worker():
 
 async def audio_handler(websocket):
     client_id = websocket.remote_address
-    print(f"🔗 Connected: {client_id}")
+
+    device_id = websocket.request.path.strip("/")
+
+    if not device_id:
+        device_id = "unknown_device"
     try:
         async for message in websocket:
             print(f"[{client_id}] 📦 {len(message)} bytes — queued...")
             audio_float32 = np.frombuffer(message, dtype=np.float32)
-            await transcription_queue.put((audio_float32, client_id))
+            await transcription_queue.put((audio_float32, device_id))
 
     except websockets.exceptions.ConnectionClosed:
         print(f"❌ Disconnected: {client_id}")
     except Exception as e:
         print(f"⚠️ [{client_id}] Error: {e}")
+    finally:
+        # Clean up the dictionary when they drop
+        if device_id in active_clients:
+            del active_clients[device_id]
+        
 
 
 async def main():
