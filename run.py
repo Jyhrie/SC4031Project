@@ -13,7 +13,7 @@ N_FFT = 512
 HOP_LENGTH = 256
 N_MELS = 26
 CLASSES = ["ON", "OFF", "NOISE_SILENCE"] 
-DEVICE_ID = 0  # Note: This often changes on RPi (usually 0 or 1)
+DEVICE_ID = 6  # Note: This often changes on RPi (usually 0 or 1)
 CONFIDENCE_THRESHOLD = 0.85 
 
 # 1. Load Model with TFLite Runtime
