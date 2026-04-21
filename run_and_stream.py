@@ -3,9 +3,10 @@ import sounddevice as sd
 import asyncio
 import websockets
 import threading
+import json
 from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
 
-# --- Configuration (Matches tinyml_proj.ino) ---
+# --- Configuration ---
 MODEL_PATH = "model.tflite"
 SAMPLE_RATE = 16000
 WINDOW_SIZE = 32000  # TARGET_SAMPLES
@@ -46,9 +47,84 @@ output_details = interpreter.get_output_details()[0]
 audio_buffer = np.zeros(WINDOW_SIZE, dtype='float32')
 
 # --- State flags ---
-is_streaming = False          # True while capturing/sending post-keyword audio
-stream_buffer = []            # Accumulates raw samples during streaming phase
-stream_samples_collected = 0  # How many samples collected so far
+is_streaming = False          
+stream_buffer = []            
+stream_samples_collected = 0  
+
+# --- Persistent WebSocket state ---
+ws_connection = None        
+ws_loop = None              
+ws_ready = threading.Event()  
+
+
+async def ws_manager():
+    """Runs in a dedicated thread. Maintains a persistent two-way WebSocket connection."""
+    global ws_connection
+
+    while True:
+        try:
+            print(f"Connecting to {WS_URL}...")
+            async with websockets.connect(WS_URL) as ws:
+                ws_connection = ws
+                ws_ready.set()
+                print(f"Connected as '{STATION_ID}'. Listening for instructions...")
+
+                async for message in ws:
+                    try:
+                        instruction = json.loads(message)
+                        
+                        if instruction.get("command") == "transcription_result":
+                            text = instruction.get("text")
+                            print(f"\n[SERVER SAYS] 📝 You said: '{text}'")
+                        else:
+                            print(f"\n[WS IN] Instruction: {instruction}")
+                            
+                    except json.JSONDecodeError:
+                        print(f"\n[WS IN] Non-JSON message: {message}")
+
+        except websockets.exceptions.ConnectionClosed:
+            print("WebSocket connection closed by server.")
+        except Exception as e:
+            print(f"WebSocket error: {e}")
+        finally:
+            ws_connection = None
+            ws_ready.clear()
+            print("Reconnecting in 2s...")
+            await asyncio.sleep(2)
+
+
+def start_ws_thread():
+    """Start the WebSocket manager in a background thread."""
+    global ws_loop
+    ws_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(ws_loop)
+    ws_loop.run_until_complete(ws_manager())
+
+
+def send_audio(audio_samples: np.ndarray):
+    """Send audio over the persistent connection without dropping it."""
+    global is_streaming, stream_buffer, stream_samples_collected
+
+    if ws_connection is None:
+        print("No WebSocket connection — dropping audio.")
+    else:
+        audio_bytes = audio_samples.astype(np.float32).tobytes()
+        future = asyncio.run_coroutine_threadsafe(
+            ws_connection.send(audio_bytes),
+            ws_loop
+        )
+        try:
+            # Pushing out 4s of audio might take a brief moment, timeout is generous
+            future.result(timeout=10)
+            print(f"Audio sent ({len(audio_bytes)} bytes).")
+        except Exception as e:
+            print(f"Send error: {e}")
+
+    # Reset streaming state and re-enable inference
+    stream_buffer = []
+    stream_samples_collected = 0
+    is_streaming = False
+    print("--- Inference resumed ---")
 
 
 def compute_manual_mfcc(audio):
@@ -93,32 +169,6 @@ def predict(audio_data):
     return prob
 
 
-async def send_audio_over_websocket(audio_samples: np.ndarray):
-    """Connect to PC, send raw float32 audio bytes, then disconnect."""
-    audio_bytes = audio_samples.astype(np.float32).tobytes()
-    print(f"Connecting to {WS_URL} ...")
-    try:
-        async with websockets.connect(WS_URL) as ws:
-            print(f"Connected. Sending {len(audio_samples)} samples ({len(audio_bytes)} bytes)...")
-            await ws.send(audio_bytes)
-            print("Audio sent. Closing connection.")
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-
-
-def stream_and_resume(audio_samples: np.ndarray):
-    """Run the async WebSocket send in a dedicated thread, then re-enable inference."""
-    global is_streaming, stream_buffer, stream_samples_collected
-
-    asyncio.run(send_audio_over_websocket(audio_samples))
-
-    # Reset streaming state and re-enable inference
-    stream_buffer = []
-    stream_samples_collected = 0
-    is_streaming = False
-    print("--- Inference resumed ---")
-
-
 def audio_callback(indata, frames, time_info, status):
     global audio_buffer, is_streaming, stream_buffer, stream_samples_collected
 
@@ -135,12 +185,12 @@ def audio_callback(indata, frames, time_info, status):
         stream_samples_collected += to_take
 
         if stream_samples_collected >= STREAM_SAMPLES:
-            # Got all 4 seconds — fire off the WebSocket send in a background thread
             full_audio = np.concatenate(stream_buffer)
             print(f"Captured {len(full_audio)} samples. Streaming to PC...")
-            t = threading.Thread(target=stream_and_resume, args=(full_audio,), daemon=True)
+            # Use the new send_audio function instead of the old connect/drop function
+            t = threading.Thread(target=send_audio, args=(full_audio,), daemon=True)
             t.start()
-        return  # Skip inference while streaming
+        return
 
     # ── INFERENCE PHASE ──────────────────────────────────────────────────────
     audio_buffer = np.roll(audio_buffer, -len(chunk))
@@ -152,15 +202,21 @@ def audio_callback(indata, frames, time_info, status):
 
         if score > CONFIDENCE_THRESHOLD:
             print(f">>> KEYWORD DETECTED: Hey Home ({score * 100:.1f}%) — pausing inference, streaming next {STREAM_DURATION}s")
-            audio_buffer[:] = 0  # <-- purge stale audio before streaming phase
+            audio_buffer[:] = 0  
             is_streaming = True
             stream_buffer = []
             stream_samples_collected = 0
 
 
-# --- Scanning & Listening ---
+# --- Start WebSocket thread ---
 print("Scanning Devices...")
 print(sd.query_devices())
+
+ws_thread = threading.Thread(target=start_ws_thread, daemon=True)
+ws_thread.start()
+
+print("Waiting for WebSocket connection...")
+ws_ready.wait()  # Block until connected
 
 with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1,
                     callback=audio_callback, blocksize=STEP_SIZE):

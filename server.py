@@ -1,4 +1,5 @@
 import asyncio
+import json
 import websockets
 import numpy as np
 import wave
@@ -30,6 +31,21 @@ async def transcription_worker():
         )
         transcript = result["text"].strip()
         print(f"[{client_id}] 📝 {transcript}")
+
+        if client_id in active_clients:
+            ws = active_clients[client_id]
+            try:
+                # Format the response as JSON
+                response = json.dumps({
+                    "command": "transcription_result", 
+                    "text": transcript
+                })
+                await ws.send(response)
+                print(f"[{client_id}] 📤 Sent transcript back to device.")
+            except Exception as e:
+                print(f"[{client_id}] ⚠️ Failed to send transcript: {e}")
+        else:
+            print(f"[{client_id}] ⚠️ Device disconnected before transcript could be sent.")
 
         transcription_queue.task_done()
 
