@@ -1,4 +1,5 @@
 import asyncio
+import queue
 
 import numpy as np
 import sounddevice as sd
@@ -33,6 +34,7 @@ HANN_WINDOW = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
 print("Using Device ID:", DEVICE_ID)
 
 event_queue = asyncio.Queue()
+audio_queue = queue.Queue()
 
 try:
     import tflite_runtime.interpreter as tflite
@@ -113,6 +115,8 @@ def audio_callback(indata, frames, time_info, status):
     audio_buffer = np.roll(audio_buffer, -len(indata))
     audio_buffer[-len(indata):] = indata[:, 0]
 
+    audio_queue.put(indata.tobytes())
+
     # 2. Check if we are currently in "Streaming Mode"
     if STREAMING_BLOCKS_REMAINING > 0:
         # Send the most recent chunk (STEP_SIZE) to the server
@@ -142,7 +146,7 @@ async def websocket_sender():
     async with websockets.connect(WS_URL) as ws:
         print("✅ WebSocket Connected!")
         while True:
-            data = await event_queue.get()
+            data = audio_queue.get_nowait()
             await ws.send(data)
 
 
