@@ -130,6 +130,7 @@ def audio_callback(indata, frames, time_info, status):
 
     if f_stream_enabled:
         audio_queue.put(indata.tobytes())
+        websocket_sender()
             
 
 async def websocket_sender():
@@ -172,6 +173,7 @@ with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1,
     try:
         while True: sd.sleep(1000)
     except KeyboardInterrupt: print("\nStopped.")
+    
 # if __name__ == "__main__":
 #     try:
 #         asyncio.run(main())
