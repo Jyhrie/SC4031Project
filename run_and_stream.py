@@ -35,9 +35,9 @@ HANN_WINDOW = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
 print("Using Device ID:", DEVICE_ID)
 
 event_queue = asyncio.Queue()
-audio_queue = queue.Queue()
-stream_start_time = None
+audio_queue = asyncio.Queue() 
 f_stream_enabled = False
+stream_start_time = 0
 
 try:
     import tflite_runtime.interpreter as tflite
@@ -58,9 +58,7 @@ def compute_manual_mfcc(audio):
     """Replicates computeMFCC() from Arduino [cite: 32-45]"""
     # 1. DC Offset Removal [cite: 33]
     audio = audio - np.mean(audio)
-    
     mfcc_buf = np.zeros((N_FRAMES, N_MFCC))
-    
     # 2. Frame Processing Loop [cite: 35]
     for frame_idx in range(N_FRAMES):
         start = frame_idx * HOP_LENGTH
@@ -117,8 +115,6 @@ def audio_callback(indata, frames, time_info, status):
         # Roll and update buffer
         audio_buffer = np.roll(audio_buffer, -len(indata))
         audio_buffer[-len(indata):] = indata[:, 0]
-        
-
         # Quick volume check to avoid unnecessary CPU usage
         if np.sqrt(np.mean(audio_buffer**2)) > 0.01:
             score = predict(audio_buffer)
@@ -136,59 +132,31 @@ def audio_callback(indata, frames, time_info, status):
             
 
 async def websocket_sender():
-    global f_stream_enabled, stream_start_time
-    print(f"Connecting to server at {WS_URL}...")
+    print(f"Connecting to {WS_URL}...")
     async with websockets.connect(WS_URL) as ws:
         print("✅ WebSocket Connected!")
         while True:
-            try:
-                # Non-blocking get from queue
-                data = audio_queue.get_nowait()
-                await ws.send(data)
-            except queue.Empty:
-                # Small sleep to yield to the event loop
-                await asyncio.sleep(0.01)
+            data = await audio_queue.get()
+            await ws.send(data)
 
-# async def main():
-#     global loop
-#     loop = asyncio.get_running_loop()
+async def main():
+    global loop
+    loop = asyncio.get_running_loop()
 
-#     # --- Scanning & Listening ---
-#     print("Scanning Devices...")
-#     print(sd.query_devices())
+    stream = sd.InputStream(
+        samplerate=SAMPLE_RATE, 
+        device=DEVICE_ID, 
+        channels=1, 
+        callback=audio_callback, 
+        blocksize=STEP_SIZE
+    )
 
-#     # Start the Microphone Stream
-#     stream = sd.InputStream(
-#         samplerate=SAMPLE_RATE, 
-#         device=DEVICE_ID, 
-#         channels=1, 
-#         callback=audio_callback, 
-#         blocksize=STEP_SIZE
-#     )
+    with stream:
+        print("--- RPi Local Inference + WebSocket Active ---")
+        await websocket_sender()
 
-#     with stream:
-#         print("--- RPi Local Inference + WebSocket Active ---")
-#         # Run the sender task
-#         await websocket_sender()
-
-
-with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1, 
-                    callback=audio_callback, blocksize=STEP_SIZE):
-    print(f"--- RPi Manual Listener Active ---")
+if __name__ == "__main__":
     try:
-        asyncio.run(websocket_sender())
-        while True: sd.sleep(1000)
-    except KeyboardInterrupt: print("\nStopped.")
-    
-# if __name__ == "__main__":
-#     try:
-#         asyncio.run(main())
-#     except KeyboardInterrupt:
-#         print("\nStopped.")
-
-# with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1, 
-#                     callback=audio_callback, blocksize=STEP_SIZE):
-#     print(f"--- RPi Manual Listener Active ---")
-#     try:
-#         while True: sd.sleep(1000)
-#     except KeyboardInterrupt: print("\nStopped.")
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nStopped.")
