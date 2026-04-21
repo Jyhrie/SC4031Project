@@ -12,7 +12,7 @@ N_FFT = 512
 HOP_LENGTH = 256
 N_FRAMES = 124
 CLASSES = ["ON", "OFF", "UNKNOWN"]
-DEVICE_ID = 2 
+DEVICE_ID = 2
 CONFIDENCE_THRESHOLD = 0.80
 
 
@@ -72,6 +72,7 @@ def predict(audio_data):
     # Get Manual MFCCs
     mfcc = compute_manual_mfcc(audio_data)
     print(f"Mean MFCC: {np.mean(mfcc):.2f}, Std Dev: {np.std(mfcc):.2f}")
+    mfcc = (mfcc + 11.5) * (110.0 / 65.0) - 30.0
 
     # Quantization logic for INT8 [cite: 66, 68]
     input_scale, input_zero_point = input_details['quantization']
