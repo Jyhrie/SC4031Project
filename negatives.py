@@ -8,7 +8,7 @@ SR = 16000
 DURATION = 2.0  # 2 seconds per clip
 SAMPLES = int(SR * DURATION)
 OUTPUT_FOLDER = "dataset/raw_other"
-DEVICE_ID = 1  # Your Razer Seiren Mini
+DEVICE_ID = 2  # Your Razer Seiren Mini
 
 if not os.path.exists(OUTPUT_FOLDER):
     os.makedirs(OUTPUT_FOLDER)
