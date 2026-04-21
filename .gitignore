@@ -5,7 +5,7 @@ env/
 bin/
 lib/
 share/
-/dataset/*
+/dataset_old/*
 
 # Python cache
 __pycache__/
