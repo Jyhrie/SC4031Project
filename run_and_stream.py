@@ -20,8 +20,8 @@ CONFIDENCE_THRESHOLD = 0.80
 
 PC_IP = "192.168.18.73"
 PORT = 8000
-DEVICE_ID = "device_2"
-WS_URL = f"ws://{PC_IP}:{PORT}/{DEVICE_ID}"
+STATION_ID = "device_2"
+WS_URL = f"ws://{PC_IP}:{PORT}/{STATION_ID}"
 
 STREAM_DURATION = 4       # seconds to stream after keyword
 STREAM_SAMPLES = SAMPLE_RATE * STREAM_DURATION  # 64000 samples
