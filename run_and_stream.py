@@ -113,20 +113,20 @@ def predict(audio_data):
 def audio_callback(indata, frames, time_info, status):
     global audio_buffer, f_stream_enabled, stream_start_time
     if status: print(status)
-    
-    # Roll and update buffer
-    audio_buffer = np.roll(audio_buffer, -len(indata))
-    audio_buffer[-len(indata):] = indata[:, 0]
-    
+    if not f_stream_enabled:
+        # Roll and update buffer
+        audio_buffer = np.roll(audio_buffer, -len(indata))
+        audio_buffer[-len(indata):] = indata[:, 0]
+        
 
-    # Quick volume check to avoid unnecessary CPU usage
-    if np.sqrt(np.mean(audio_buffer**2)) > 0.01:
-        score = predict(audio_buffer)
-        print(f"Predicted Score: {score:.4f}")
-        if score > CONFIDENCE_THRESHOLD:
-            print(f">>> KEYWORD DETECTED: Hey Home ({score*100:.1f}%)")
-            f_stream_enabled = True
-            stream_start_time = time.time()
+        # Quick volume check to avoid unnecessary CPU usage
+        if np.sqrt(np.mean(audio_buffer**2)) > 0.01:
+            score = predict(audio_buffer)
+            print(f"Predicted Score: {score:.4f}")
+            if score > CONFIDENCE_THRESHOLD:
+                print(f">>> KEYWORD DETECTED: Hey Home ({score*100:.1f}%)")
+                f_stream_enabled = True
+                stream_start_time = time.time()
 
     if f_stream_enabled:
         audio_queue.put(indata.tobytes())
