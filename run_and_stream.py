@@ -151,6 +151,7 @@ def audio_callback(indata, frames, time_info, status):
 
         if score > CONFIDENCE_THRESHOLD:
             print(f">>> KEYWORD DETECTED: Hey Home ({score * 100:.1f}%) — pausing inference, streaming next {STREAM_DURATION}s")
+            audio_buffer[:] = 0  # <-- purge stale audio before streaming phase
             is_streaming = True
             stream_buffer = []
             stream_samples_collected = 0

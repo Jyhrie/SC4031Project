@@ -23,13 +23,7 @@ async def audio_handler(websocket):
         try:
             async for message in websocket:
                 # 1. Convert incoming 16-bit PCM bytes to a NumPy array
-                audio_int16 = np.frombuffer(message, dtype=np.int16)
-                
-                # 2. Normalize to float32 (-1.0 to 1.0)
-                audio_float32 = audio_int16.astype(np.float32) / 32768.0
-                
-                # 3. Write directly to the stream
-                # This will wait (block) just long enough to keep the buffer full
+                audio_float32 = np.frombuffer(message, dtype=np.float32)
                 stream.write(audio_float32)
                 
                 # Optional: Debugging to see if data is actually flowing
