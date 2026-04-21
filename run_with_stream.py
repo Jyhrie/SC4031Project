@@ -29,6 +29,7 @@ audio_queue = asyncio.Queue()
 
 is_streaming = False
 stream_timeout = 0
+loop = asyncio.get_event_loop() # Initialize the loop here
 
 try:
     import tflite_runtime.interpreter as tflite
