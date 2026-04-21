@@ -1,5 +1,6 @@
 import asyncio
 import queue
+from time import time
 
 import numpy as np
 import sounddevice as sd
@@ -35,6 +36,7 @@ print("Using Device ID:", DEVICE_ID)
 
 event_queue = asyncio.Queue()
 audio_queue = queue.Queue()
+stream_start_time = None
 
 try:
     import tflite_runtime.interpreter as tflite
@@ -108,52 +110,37 @@ def predict(audio_data):
     return prob
 
 def audio_callback(indata, frames, time_info, status):
-    global audio_buffer, SAMPLES_SINCE_LAST_DETECTION, STREAMING_BLOCKS_REMAINING
+    global audio_buffer, f_stream_enabled, stream_start_time
     if status: print(status)
     
-    # 1. Update the sliding window buffer
+    # Roll and update buffer
     audio_buffer = np.roll(audio_buffer, -len(indata))
     audio_buffer[-len(indata):] = indata[:, 0]
+    
 
-    audio_queue.put(indata.tobytes())
-
-    # 2. Check if we are currently in "Streaming Mode"
-    if STREAMING_BLOCKS_REMAINING > 0:
-        # Send the most recent chunk (STEP_SIZE) to the server
-        loop.call_soon_threadsafe(event_queue.put_nowait, indata.tobytes())
-        STREAMING_BLOCKS_REMAINING -= 1
-        return # Skip prediction while streaming
-
-    # 3. Standard Keyword Detection Logic
-    SAMPLES_SINCE_LAST_DETECTION += len(indata)
+    # Quick volume check to avoid unnecessary CPU usage
     if np.sqrt(np.mean(audio_buffer**2)) > 0.01:
-        if SAMPLES_SINCE_LAST_DETECTION > MIN_DETECTION_GAP:
-            score = predict(audio_buffer)
+        score = predict(audio_buffer)
+        print(f"Predicted Score: {score:.4f}")
+        if score > CONFIDENCE_THRESHOLD:
+            print(f">>> KEYWORD DETECTED: Hey Home ({score*100:.1f}%)")
+            f_stream_enabled = True
+            stream_start_time = time.now()
+
+    if f_stream_enabled:
+        audio_queue.put(indata.tobytes())
             
-            if score > CONFIDENCE_THRESHOLD:
-                print(f">>> KEYWORD DETECTED! Starting 4s stream...")
-                audio_buffer = np.zeros(WINDOW_SIZE, dtype='float32')
-                SAMPLES_SINCE_LAST_DETECTION = 0
-                
-                # Trigger the stream
-                STREAMING_BLOCKS_REMAINING = BLOCKS_TO_STREAM
-                
-                # OPTIONAL: Send the PREVIOUS 2 seconds (the buffer that had the keyword) 
-                # so the server hears the "Hey Home" part too
-                loop.call_soon_threadsafe(event_queue.put_nowait, audio_buffer.tobytes())
 
 async def websocket_sender():
+    global f_stream_enabled, stream_start_time
     print(f"Connecting to server at {WS_URL}...")
-    try:
-        async with websockets.connect(WS_URL) as ws:
-            print("✅ WebSocket Connected!")
-            while True:
-                data = await audio_queue.get()
-                
-                await ws.send(data)
-                print(f"Sent {len(data)} bytes to server")
-    except Exception as e:
-        print(f"❌ WebSocket Error: {e}")
+    async with websockets.connect(WS_URL) as ws:
+        print("✅ WebSocket Connected!")
+        while f_stream_enabled:
+            data = audio_queue.get_nowait()
+            await ws.send(data)
+            if time.now() - stream_start_time > 4:
+                f_stream_enabled = False
 
 
 
