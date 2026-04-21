@@ -8,7 +8,7 @@ from tensorflow.keras.callbacks import EarlyStopping
 
 # --- Configuration ---
 DATA_PATH = "dataset/"
-CLASSES = ["hey_home", "other"] 
+CLASSES = ["other", "hey_home"] 
 SAMPLE_RATE = 16000
 DURATION = 2  # The new "Safe" window
 N_MFCC = 13
