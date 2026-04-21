@@ -11,7 +11,7 @@ PORT = 8000
 WS_URL = f"ws://{PC_IP}:{PORT}" # Match the new direct listener
 SAMPLERATE = 16000 
 CHANNELS = 1
-DEVICE_ID = 0 
+DEVICE_ID = 2 
 BLOCKSIZE = 1600 # 0.1 seconds of audio per packet
 
 # Thread-safe queue to hold audio data

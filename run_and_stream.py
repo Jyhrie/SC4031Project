@@ -1,11 +1,6 @@
-import asyncio
 import numpy as np
-from archive.py_mic import PC_IP
 import sounddevice as sd
 from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
-import websockets
-import time
-import queue
 
 # --- Configuration (Matches tinyml_proj.ino) ---
 MODEL_PATH = "model.tflite"
@@ -18,25 +13,13 @@ HOP_LENGTH = 256
 N_FRAMES = 124
 CLASSES = ["ON", "OFF", "UNKNOWN"]
 DEVICE_ID = 2
-CONFIDENCE_THRESHOLD = 0.90
-SAMPLERATE = 16000 
-CHANNELS = 1
-BLOCKSIZE = 1600 # 0.1 seconds of audio per packet
+CONFIDENCE_THRESHOLD = 0.80
+
+
 
 # Pre-compute Hann Window once
 HANN_WINDOW = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
 print("Using Device ID:", DEVICE_ID)
-
-PC_IP = "192.168.18.73"
-PORT = 8000
-WS_URL = f"ws://{PC_IP}:{PORT}"
-SAMPLE_RATE = 16000
-STREAM_SECONDS = 4  # How long to stream after detection
-audio_queue = asyncio.Queue()
-
-is_streaming = False
-stream_timeout = 0
-loop = asyncio.get_event_loop() # Initialize the loop here
 
 try:
     import tflite_runtime.interpreter as tflite
@@ -110,76 +93,19 @@ def predict(audio_data):
     return prob
 
 def audio_callback(indata, frames, time_info, status):
-    global is_streaming, stream_timeout
-    global audio_buffer, loop
+    global audio_buffer
+    if status: print(status)
     
-    if status: 
-        print(f"Status: {status}")
-    
-    # 1. Update the rolling buffer for the TFLite model
+    # Roll and update buffer
     audio_buffer = np.roll(audio_buffer, -len(indata))
     audio_buffer[-len(indata):] = indata[:, 0]
 
-    # 2. Logic while NOT streaming (Looking for Wake Word)
-    if not is_streaming:
-        # Quick volume gate to save CPU
-        rms = np.sqrt(np.mean(audio_buffer**2))
-        if rms > 0.01:
-            score = predict(audio_buffer)
-            
-            # Inverse logic: low score (< 0.15) means "Hey Home" was detected
-            if score < (1.0 - CONFIDENCE_THRESHOLD): 
-                print(f">>> KEYWORD DETECTED! Confidence: {(1.0 - score)*100:.1f}%")
-                is_streaming = True
-                stream_timeout = time.time() + STREAM_SECONDS
-    
-    # 3. Logic while streaming (Sending data to Server)
-    if is_streaming:
-        # Send raw bytes to the async queue
-        # indata contains the most recent chunk of audio
-        try:
-            loop.call_soon_threadsafe(audio_queue.put_nowait, indata.copy().tobytes())
-        except Exception as e:
-            print(f"Queue Error: {e}")
-
-        # Check if we should stop streaming
-        if time.time() > stream_timeout:
-            print(">>> Streaming Window Closed.")
-            is_streaming = False
-
-async def stream_mic():
-    print(f"Connecting to PC at {WS_URL}...")
-    try:
-        async with websockets.connect(WS_URL) as ws:
-            print("✅ Connected! Waiting for keyword...")
-
-            # Start the microphone stream inside the context
-            with sd.InputStream(samplerate=SAMPLERATE, 
-                                device=DEVICE_ID,
-                                channels=CHANNELS, 
-                                dtype='float32', # Match your model's expected input
-                                blocksize=BLOCKSIZE,
-                                callback=audio_callback):
-                
-                while True:
-                    try:
-                        # Non-blocking get from queue
-                        data_bytes = audio_queue.get_nowait()
-                        audio_chunk = np.frombuffer(data_bytes, dtype='float32')
-                        await ws.send(data_bytes)
-                        print(f"\rStreaming Audio: {get_volume_bar(audio_chunk)}", end="", flush=True)
-                        
-                    except queue.Empty:
-                        await asyncio.sleep(0.01)
-    except Exception as e:
-        print(f"❌ Connection Error: {e}")
-
-def get_volume_bar(audio_data, length=20):
-    rms = np.sqrt(np.mean(audio_data**2))
-    # Scale factor (0.05 is usually a good 'loud' threshold for normalized audio)
-    level = int(min(rms / 0.05, 1.0) * length)
-    bar = "█" * level + "-" * (length - level)
-    return f"[{bar}] {rms:.4f}"
+    # Quick volume check to avoid unnecessary CPU usage
+    if np.sqrt(np.mean(audio_buffer**2)) > 0.01:
+        score = predict(audio_buffer)
+        print(f"Predicted Score: {score:.4f}")
+        if score > CONFIDENCE_THRESHOLD:
+            print(f">>> KEYWORD DETECTED: Hey Home ({score*100:.1f}%)")
 
 # --- Scanning & Listening ---
 print("Scanning Devices...")
