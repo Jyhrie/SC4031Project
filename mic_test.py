@@ -3,7 +3,7 @@ import numpy as np
 import sys
 
 # Based on your previous scan: 2 is the Razer Seiren Mini
-DEVICE_ID = 1
+DEVICE_ID = 2
 SAMPLE_RATE = 16000  # Standard for wake-word models
 CHANNELS = 1
 
