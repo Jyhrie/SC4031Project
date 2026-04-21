@@ -130,7 +130,6 @@ def audio_callback(indata, frames, time_info, status):
 
     if f_stream_enabled:
         audio_queue.put(indata.tobytes())
-        websocket_sender()
             
 
 async def websocket_sender():
@@ -138,11 +137,14 @@ async def websocket_sender():
     print(f"Connecting to server at {WS_URL}...")
     async with websockets.connect(WS_URL) as ws:
         print("✅ WebSocket Connected!")
-        while f_stream_enabled:
-            data = audio_queue.get_nowait()
-            await ws.send(data)
-            if time.time() - stream_start_time > 4:
-                f_stream_enabled = False
+        while True:
+            try:
+                # Non-blocking get from queue
+                data = audio_queue.get_nowait()
+                await ws.send(data)
+            except queue.Empty:
+                # Small sleep to yield to the event loop
+                await asyncio.sleep(0.01)
 
 # async def main():
 #     global loop
@@ -171,6 +173,7 @@ with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1,
                     callback=audio_callback, blocksize=STEP_SIZE):
     print(f"--- RPi Manual Listener Active ---")
     try:
+        asyncio.run(websocket_sender())
         while True: sd.sleep(1000)
     except KeyboardInterrupt: print("\nStopped.")
     
