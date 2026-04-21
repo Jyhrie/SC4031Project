@@ -1,9 +1,11 @@
 import asyncio
 import numpy as np
+from archive.py_mic import PC_IP
 import sounddevice as sd
 from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
 import websockets
 import time
+import queue
 
 # --- Configuration (Matches tinyml_proj.ino) ---
 MODEL_PATH = "model.tflite"
@@ -17,12 +19,18 @@ N_FRAMES = 124
 CLASSES = ["ON", "OFF", "UNKNOWN"]
 DEVICE_ID = 2
 CONFIDENCE_THRESHOLD = 0.90
+SAMPLERATE = 16000 
+CHANNELS = 1
+DEVICE_ID = 0 
+BLOCKSIZE = 1600 # 0.1 seconds of audio per packet
 
 # Pre-compute Hann Window once
 HANN_WINDOW = 0.5 * (1.0 - np.cos(2.0 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
 print("Using Device ID:", DEVICE_ID)
 
-SERVER_URL = "ws://192.168.18.73:8000/ws/audio" 
+PC_IP = "192.168.18.73"
+PORT = 8000
+WS_URL = f"ws://{PC_IP}:{PORT}"
 SAMPLE_RATE = 16000
 STREAM_SECONDS = 4  # How long to stream after detection
 audio_queue = asyncio.Queue()
@@ -140,23 +148,39 @@ def audio_callback(indata, frames, time_info, status):
             print(">>> Streaming Window Closed.")
             is_streaming = False
 
-async def websocket_sender():
-    """The async loop that manages the connection"""
-    global is_streaming
-    print(f"Connecting to server at {SERVER_URL}...")
-    
-    while True:
-        try:
-            async with websockets.connect(SERVER_URL) as ws:
-                print("Connected! Waiting for keyword...")
+async def stream_mic():
+    print(f"Connecting to PC at {WS_URL}...")
+    try:
+        async with websockets.connect(WS_URL) as ws:
+            print("✅ Connected! Waiting for keyword...")
+
+            # Start the microphone stream inside the context
+            with sd.InputStream(samplerate=SAMPLERATE, 
+                                device=DEVICE_ID,
+                                channels=CHANNELS, 
+                                dtype='float32', # Match your model's expected input
+                                blocksize=BLOCKSIZE,
+                                callback=audio_callback):
+                
                 while True:
-                    # Wait for data to appear in the queue
-                    audio_bytes = await audio_queue.get()
-                    await ws.send(audio_bytes)
-                    
-        except Exception as e:
-            print(f"Connection lost ({e}). Retrying in 3s...")
-            await asyncio.sleep(3)
+                    try:
+                        # Non-blocking get from queue
+                        data_bytes = audio_queue.get_nowait()
+                        audio_chunk = np.frombuffer(data_bytes, dtype='float32')
+                        await ws.send(data_bytes)
+                        print(f"\rStreaming Audio: {get_volume_bar(audio_chunk)}", end="", flush=True)
+                        
+                    except queue.Empty:
+                        await asyncio.sleep(0.01)
+    except Exception as e:
+        print(f"❌ Connection Error: {e}")
+
+def get_volume_bar(audio_data, length=20):
+    rms = np.sqrt(np.mean(audio_data**2))
+    # Scale factor (0.05 is usually a good 'loud' threshold for normalized audio)
+    level = int(min(rms / 0.05, 1.0) * length)
+    bar = "█" * level + "-" * (length - level)
+    return f"[{bar}] {rms:.4f}"
 
 # --- Scanning & Listening ---
 print("Scanning Devices...")
