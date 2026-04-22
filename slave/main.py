@@ -12,7 +12,6 @@ print("Starting system...")
 state = State()
 state.audio_buffer = __import__("numpy").zeros(WINDOW_SIZE, dtype="float32")
 
-
 # start websocket thread
 threading.Thread(target=start_ws, args=(state,), daemon=True).start()
 

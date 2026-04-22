@@ -1,6 +1,6 @@
 import numpy as np
 import sounddevice as sd
-from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
+from slave.audio_weights import MEL_FILTER_BANK, DCT_MATRIX
 
 # --- Configuration (Matches tinyml_proj.ino) ---
 MODEL_PATH = "model.tflite"

@@ -4,7 +4,7 @@ import asyncio
 import websockets
 import threading
 import json
-from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
+from slave.audio_weights import MEL_FILTER_BANK, DCT_MATRIX
 
 # --- Configuration ---
 MODEL_PATH = "model.tflite"
