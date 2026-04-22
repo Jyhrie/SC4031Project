@@ -1,11 +1,11 @@
 import tkinter as tk
 import threading
-
+from config import *
 
 class SmartHomeUI:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Smart Home Node")
+        self.root.title("Smart Home Node (" + STATION_ID + ")")
         self.root.geometry("420x220")
         self.root.configure(bg="#1e1e1e")
 
