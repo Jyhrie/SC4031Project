@@ -4,43 +4,41 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, classification_report
-import seaborn as sns
-import matplotlib.pyplot as plt
+from tensorflow.keras.callbacks import EarlyStopping
 
 # --- Configuration ---
 DATA_PATH = "dataset/"
-CLASSES = ["other", "hey_home"]
+CLASSES = ["other", "hey_home"] 
 SAMPLE_RATE = 16000
-DURATION = 2
+DURATION = 2  # The new "Safe" window
 N_MFCC = 13
 N_FFT = 512
-HOP_LENGTH = 256
-TARGET_SAMPLES = int(SAMPLE_RATE * DURATION)
-
+HOP_LENGTH = 256 
+TARGET_SAMPLES = int(SAMPLE_RATE * DURATION) # 28,000 samples
 
 def augment_audio(audio):
-    return [
-        librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=1),
-        librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=-1),
-    ]
-
+    """Generates variations in RAM without cutting off the word ends."""
+    vars = []
+    # 1. Pitch Shifts (No length change)
+    vars.append(librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=1))
+    vars.append(librosa.effects.pitch_shift(audio, sr=SAMPLE_RATE, n_steps=-1))
+        
+    return vars
 
 def load_and_preprocess():
     X, y = [], []
-
     for idx, label in enumerate(CLASSES):
         folder = os.path.join(DATA_PATH, label)
-        if not os.path.exists(folder):
-            continue
-
-        files = [f for f in os.listdir(folder) if f.endswith(".wav")]
+        if not os.path.exists(folder): continue
+            
+        files = [f for f in os.listdir(folder) if f.endswith('.wav')]
         print(f"Loading {len(files)} samples for {label}...")
-
+        
         for f in files:
             path = os.path.join(folder, f)
             audio, _ = librosa.load(path, sr=SAMPLE_RATE)
-
+            
+            # audio = librosa.util.normalize(audio)
             audio = audio - np.mean(audio)
 
             if len(audio) < TARGET_SAMPLES:
@@ -48,145 +46,98 @@ def load_and_preprocess():
             else:
                 audio = audio[:TARGET_SAMPLES]
 
-            mfcc = librosa.feature.mfcc(
-                y=audio,
-                sr=SAMPLE_RATE,
-                n_mfcc=N_MFCC,
-                n_fft=N_FFT,
-                hop_length=HOP_LENGTH,
-                center=False
-            ).T
-
-            X.append(mfcc)
+            # Original
+            X.append(librosa.feature.mfcc(y=audio, sr=SAMPLE_RATE, n_mfcc=N_MFCC, 
+                                        n_fft=N_FFT, hop_length=HOP_LENGTH, center=False).T)
             y.append(idx)
 
-            # augmentation
-            if label == "hey_home":
+            # Augment ON and OFF to balance the dataset
+            if label in ["ON", "OFF", "NOISE_SILENCE"]:
                 for v in augment_audio(audio):
-                    mfcc_aug = librosa.feature.mfcc(
-                        y=v,
-                        sr=SAMPLE_RATE,
-                        n_mfcc=N_MFCC,
-                        n_fft=N_FFT,
-                        hop_length=HOP_LENGTH,
-                        center=False
-                    ).T
-                    X.append(mfcc_aug)
+                    mfcc = librosa.feature.mfcc(y=v, sr=SAMPLE_RATE, n_mfcc=N_MFCC, 
+                                                n_fft=N_FFT, hop_length=HOP_LENGTH, center=False)
+                    X.append(mfcc.T)
                     y.append(idx)
-
+            
     return np.array(X), np.array(y)
 
-
-# 1. Load dataset
+# 1. Load Data
 X, y = load_and_preprocess()
-X = X[..., np.newaxis]
+X = X[..., np.newaxis] 
 
-# shuffle
-idxs = np.arange(len(X))
-np.random.shuffle(idxs)
-X, y = X[idxs], y[idxs]
+# Shuffle
+indices = np.arange(X.shape[0])
+np.random.shuffle(indices)
+X, y = X[indices], y[indices]
 
-# ----------------------------
-# SPLIT: train / val / test
-# ----------------------------
-X_train, X_temp, y_train, y_temp = train_test_split(
-    X, y, test_size=0.3, random_state=42, stratify=y
-)
+unique, counts = np.unique(y, return_counts=True)
+label_counts = dict(zip(CLASSES, counts))
 
-X_val, X_test, y_val, y_test = train_test_split(
-    X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp
-)
+print("--- Total Dataset Distribution ---")
+for label, count in label_counts.items():
+    percentage = (count / len(y)) * 100
+    print(f"{label}: {count} samples ({percentage:.1f}%)")
 
-print(f"Train: {len(X_train)} | Val: {len(X_val)} | Test: {len(X_test)}")
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
 
-
-# ----------------------------
-# MODEL
-# ----------------------------
+# 2. Model Architecture (Bottlenecked for RAM)
 model = models.Sequential([
+    # Input remains the same (MFCC frames, coefficients, 1 channel)
     layers.Input(shape=(124, 13, 1)),
-
-    layers.Conv2D(32, (3, 3), activation='relu', padding='same'),
+    
+    layers.Conv2D(64, (3, 3), padding='same', activation='relu'),
+    layers.BatchNormalization(), # Stabilizes learning
     layers.MaxPooling2D((2, 2)),
-    layers.Dropout(0.2),
-
-    # replace SeparableConv2D
-    layers.DepthwiseConv2D((3,3), padding='same', activation='relu'),
-    layers.Conv2D(32, (1,1), activation='relu'),
-    layers.MaxPooling2D((2, 2)),
-
-    layers.DepthwiseConv2D((3,3), padding='same', activation='relu'),
-    layers.Conv2D(16, (1,1), activation='relu'),
+    
+    layers.Conv2D(128, (3, 3), padding='same', activation='relu'),
+    layers.BatchNormalization(),
     layers.MaxPooling2D((2, 2)),
 
+    layers.Conv2D(128, (3, 3), padding='same', activation='relu'),
+    layers.BatchNormalization(),
+    layers.Activation('relu'),
     layers.GlobalAveragePooling2D(),
-    layers.Dense(32, activation='relu'),
-    layers.Dropout(0.3),
-    layers.Dense(1, activation='sigmoid')
+    
+    layers.Dense(128, activation='relu'),
+    layers.Dropout(0.3), # Prevents overfitting to your specific Pi mic
+    layers.Dense(1, activation='sigmoid') # Your single "Is this it?" output
 ])
 
-model.compile(
-    optimizer='adam',
-    loss='binary_crossentropy',
-    metrics=['accuracy']
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+early_stop = EarlyStopping(
+    monitor='val_loss', 
+    patience=12, 
+    restore_best_weights=True,
+    verbose=1
 )
 
-model.summary()
+# 3. Train
+model.fit(X_train, y_train, epochs=80, batch_size=32, validation_data=(X_test, y_test), callbacks=[early_stop])
 
+# 4. Quantize
+def rep_data_gen():
+    # Determine how many samples to pick (ensure we don't exceed dataset size)
+    num_samples = min(len(X_train), 300)
+    
+    # Generate random indices without replacement
+    random_indices = np.random.choice(len(X_train), num_samples, replace=False)
+    
+    for i in random_indices:
+        # Extract the sample at the random index
+        # [i:i+1] ensures the shape remains (1, frames, mfcc, 1)
+        yield [X_train[i:i+1].astype(np.float32)]
 
-# ----------------------------
-# TRAIN
-# ----------------------------
-history = model.fit(
-    X_train, y_train,
-    validation_data=(X_val, y_val),
-    epochs=80,
-    batch_size=32
-)
-
-
-# ----------------------------
-# TEST EVALUATION
-# ----------------------------
-print("\nEvaluating test set...")
-y_prob = model.predict(X_test)
-y_pred = (y_prob > 0.5).astype(int).reshape(-1)
-
-
-# ----------------------------
-# CLASSIFICATION REPORT
-# ----------------------------
-print("\nClassification Report:")
-print(classification_report(y_test, y_pred, target_names=CLASSES))
-
-
-# ----------------------------
-# CONFUSION MATRIX
-# ----------------------------
-cm = confusion_matrix(y_test, y_pred)
-
-plt.figure(figsize=(5, 4))
-sns.heatmap(
-    cm,
-    annot=True,
-    fmt="d",
-    xticklabels=CLASSES,
-    yticklabels=CLASSES
-)
-plt.title("Confusion Matrix")
-plt.xlabel("Predicted")
-plt.ylabel("Actual")
-plt.show()
-
-
-# ----------------------------
-# SAVE TFLITE (unchanged)
-# ----------------------------
 converter = tf.lite.TFLiteConverter.from_keras_model(model)
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
-tflite_model = converter.convert()
+converter.representative_dataset = rep_data_gen
+converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+converter.inference_input_type = tf.int8 
+converter.inference_output_type = tf.int8
 
+tflite_model = converter.convert()
 with open("model.tflite", "wb") as f:
     f.write(tflite_model)
 
-print(f"Model size: {len(tflite_model)/1024:.2f} KB")
+print(f"Success! Model Size: {len(tflite_model)/1024:.2f} KB")
+print(f"Input Shape: {X.shape[1]} x {X.shape[2]}")
