@@ -1,7 +1,7 @@
 import numpy as np
 from config import *
 
-from slave.audio_weights import MEL_FILTER_BANK, DCT_MATRIX
+from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
 
 HANN = 0.5 * (1 - np.cos(2 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
 
