@@ -105,18 +105,23 @@ print(f"Train: {len(X_train)} | Val: {len(X_val)} | Test: {len(X_test)}")
 # ----------------------------
 model = models.Sequential([
     layers.Input(shape=(124, 13, 1)),
+
     layers.Conv2D(32, (3, 3), activation='relu', padding='same'),
     layers.MaxPooling2D((2, 2)),
-    layers.Dropout(0.2), 
-    
-    layers.SeparableConv2D(32, (3, 3), activation='relu', padding='same'),
-    layers.MaxPooling2D((2, 2)),
-    layers.SeparableConv2D(16, (3, 3), activation='relu', padding='same'),
+    layers.Dropout(0.2),
+
+    # replace SeparableConv2D
+    layers.DepthwiseConv2D((3,3), padding='same', activation='relu'),
+    layers.Conv2D(32, (1,1), activation='relu'),
     layers.MaxPooling2D((2, 2)),
 
-    layers.GlobalAveragePooling2D(), 
-    layers.Dense(64, activation='relu'),
-    layers.Dropout(0.3), 
+    layers.DepthwiseConv2D((3,3), padding='same', activation='relu'),
+    layers.Conv2D(16, (1,1), activation='relu'),
+    layers.MaxPooling2D((2, 2)),
+
+    layers.GlobalAveragePooling2D(),
+    layers.Dense(32, activation='relu'),
+    layers.Dropout(0.3),
     layers.Dense(1, activation='sigmoid')
 ])
 
