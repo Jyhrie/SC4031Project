@@ -218,11 +218,11 @@ ws_thread.start()
 print("Waiting for WebSocket connection...")
 ws_ready.wait()  # Block until connected
 
-with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1,
-                    callback=audio_callback, blocksize=STEP_SIZE):
-    print(f"--- RPi Manual Listener Active ---")
-    try:
-        while True:
-            sd.sleep(1000)
-    except KeyboardInterrupt:
-        print("\nStopped.")
+# with sd.InputStream(samplerate=SAMPLE_RATE, device=DEVICE_ID, channels=1,
+#                     callback=audio_callback, blocksize=STEP_SIZE):
+print(f"--- RPi Manual Listener Active ---")
+try:
+    while True:
+        sd.sleep(1000)
+except KeyboardInterrupt:
+    print("\nStopped.")
