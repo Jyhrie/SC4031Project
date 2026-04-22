@@ -86,16 +86,12 @@ model = models.Sequential([
     layers.Input(shape=(124, 13, 1)),
     
     layers.Conv2D(64, (3, 3), padding='same', activation='relu'),
-    layers.BatchNormalization(), # Stabilizes learning
     layers.MaxPooling2D((2, 2)),
     
     layers.Conv2D(128, (3, 3), padding='same', activation='relu'),
-    layers.BatchNormalization(),
     layers.MaxPooling2D((2, 2)),
 
     layers.Conv2D(128, (3, 3), padding='same', activation='relu'),
-    layers.BatchNormalization(),
-    layers.Activation('relu'),
     layers.GlobalAveragePooling2D(),
     
     layers.Dense(128, activation='relu'),
