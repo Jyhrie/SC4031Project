@@ -10,7 +10,6 @@ state = None
 
 async def ws_loop():
     global state
-
     while True:
         try:
             async with websockets.connect(WS_URL) as ws:
@@ -20,6 +19,7 @@ async def ws_loop():
                 async for msg in ws:
                     try:
                         data = json.loads(msg)
+                        print(data)
                         if data.get("command") == "transcription_result":
                             print("[PC]:", data["text"])
                     except:
