@@ -6,6 +6,7 @@ from config import *
 from state import State
 from audio import create_audio_callback
 from network import start_ws
+from ui import ui
 
 print("Starting system...")
 
@@ -29,6 +30,5 @@ with sd.InputStream(
 
     while True:
         sd.sleep(1000)
-
 
 ui.start()
