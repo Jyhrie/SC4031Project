@@ -11,7 +11,7 @@ def create_audio_callback(state):
 
     def callback(indata, frames, time, status):
         chunk = indata[:, 0].copy()
-
+        
         # streaming mode
         if state.streaming:
             remaining = STREAM_SAMPLES - state.stream_count
@@ -27,6 +27,7 @@ def create_audio_callback(state):
                 state.stream_buf = []
                 state.stream_count = 0
 
+                state.ui.set_processing()
                 threading.Thread(
                     target=send_audio,
                     args=(state, audio),
@@ -45,6 +46,7 @@ def create_audio_callback(state):
             print("score:", score)
 
             if score > CONFIDENCE_THRESHOLD:
+                state.ui.set_listening()
                 print("KEYWORD DETECTED")
 
                 state.audio_buffer[:] = 0
