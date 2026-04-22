@@ -20,12 +20,12 @@ async def ws_loop():
                 async for msg in ws:
                     try:
                         data = json.loads(msg)
+                        print(data)
                         if data.get("command") == "nlp_result":
                             action = data["action"]
                             device = data["device"]
                             conf_action = data["action_confidence"]
                             conf_device = data["device_confidence"]
-
                             ui.show_command(action, device, conf_action, conf_device)
                     except:
                         pass
