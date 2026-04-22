@@ -6,6 +6,7 @@ from config import *
 from model import predict
 from network import send_audio
 
+from ui import ui
 
 def create_audio_callback(state):
 
@@ -27,7 +28,7 @@ def create_audio_callback(state):
                 state.stream_buf = []
                 state.stream_count = 0
 
-                state.ui.set_processing()
+                ui.set_processing()
                 threading.Thread(
                     target=send_audio,
                     args=(state, audio),
@@ -46,7 +47,7 @@ def create_audio_callback(state):
             print("score:", score)
 
             if score > CONFIDENCE_THRESHOLD:
-                state.ui.set_listening()
+                ui.set_listening()
                 print("KEYWORD DETECTED")
 
                 state.audio_buffer[:] = 0
