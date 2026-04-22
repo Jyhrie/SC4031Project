@@ -85,25 +85,26 @@ model = models.Sequential([
     # Input remains the same (MFCC frames, coefficients, 1 channel)
     layers.Input(shape=(124, 13, 1)),
     
-    # Layer 1: More filters to capture basic audio edges
-    layers.Conv2D(64, (3, 3), padding='same'),
-    layers.BatchNormalization(), # Stabilizes learning
+    layers.DepthwiseConv2D((3, 3), padding='same'),
+    layers.BatchNormalization(),
+    layers.Activation('relu'),
+    layers.MaxPooling2D((2, 2)),
+
+    layers.DepthwiseConv2D((3, 3), padding='same'),
+    layers.BatchNormalization(),
     layers.Activation('relu'),
     layers.MaxPooling2D((2, 2)),
     
-    # Layer 2: Deeper features (no longer need SeparableConv)
     layers.Conv2D(128, (3, 3), padding='same'),
     layers.BatchNormalization(),
     layers.Activation('relu'),
     layers.MaxPooling2D((2, 2)),
 
-    # Layer 3: High-level abstraction
     layers.Conv2D(128, (3, 3), padding='same'),
     layers.BatchNormalization(),
     layers.Activation('relu'),
-    layers.GlobalAveragePooling2D(), # Flattens the data for the classifier
+    layers.GlobalAveragePooling2D(), 
     
-    # Classifier: Larger dense layer for better reasoning
     layers.Dense(128, activation='relu'),
     layers.Dropout(0.3), # Prevents overfitting to your specific Pi mic
     layers.Dense(1, activation='sigmoid') # Your single "Is this it?" output

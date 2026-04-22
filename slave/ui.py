@@ -52,6 +52,9 @@ class SmartHomeUI:
     def set_processing(self):
         self.root.after(0, self._set_processing_ui)
 
+    def set_disconnected(self):
+        self.root.after(0, self._set_disconnected_ui)
+
     def show_command(self, action, device, a_conf=None, d_conf=None):
         text = f"{action} → {device}"
 
@@ -76,6 +79,10 @@ class SmartHomeUI:
         self.state_label.config(text="PROCESSING", fg="#06d6a0")
         self.main_label.config(text="Understanding command...")
         self.detail_label.config(text="Sending to server...")
+
+    def _set_disconnected_ui(self):
+        self.state_label.config(text="DISCONNECTED", fg="#06d6a0")
+        self.main_label.config(text="reconnecting...")
 
     def _show_result(self, text):
         self.state_label.config(text="DONE", fg="#8aff80")

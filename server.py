@@ -97,8 +97,6 @@ async def transcription_worker():
         })
 
         targets = DEVICE_ROUTES.get(device_name, [])
-        if device_id not in targets:
-            targets.append(device_id)
 
         for target in targets:
             if target in active_clients:
@@ -107,6 +105,10 @@ async def transcription_worker():
                     print(f"[{device_id}] 📤 Sent to {target}")
                 except Exception as e:
                     print(f"[{device_id}] ⚠️ Failed sending to {target}: {e}")
+                    
+        if device_id in active_clients:
+            await active_clients[device_id].send(response)
+            print(f"[{device_id}] 📤 Sent feedback to self")
 
         transcription_queue.task_done()
 
