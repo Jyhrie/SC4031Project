@@ -6,6 +6,7 @@ import json
 
 PORT = 8000
 WHISPER_MODEL = "medium"
+nlp_model = tf.keras.models.load_model("model.h5")
 
 print(f"Loading Whisper '{WHISPER_MODEL}'...")
 model = whisper.load_model(WHISPER_MODEL)
