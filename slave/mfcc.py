@@ -3,7 +3,7 @@ from config import *
 
 from audio_weights import MEL_FILTER_BANK, DCT_MATRIX
 
-HANN = 0.5 * (1 - np.cos(2 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
+HANN_WINDOW = 0.5 * (1 - np.cos(2 * np.pi * np.arange(N_FFT) / (N_FFT - 1)))
 
 def compute_manual_mfcc(audio):
     """Replicates computeMFCC() from Arduino"""
