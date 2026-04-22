@@ -21,7 +21,7 @@ CONFIDENCE_THRESHOLD = 0.80
 
 PC_IP = "192.168.18.73"
 PORT = 8000
-STATION_ID = "device_2"
+STATION_ID = "LIGHTS"
 WS_URL = f"ws://{PC_IP}:{PORT}/{STATION_ID}"
 
 STREAM_DURATION = 4       # seconds to stream after keyword
