@@ -1,7 +1,7 @@
 import numpy as np
 import tflite_runtime.interpreter as tflite
 from config import *
-from mfcc import compute_mfcc
+from mfcc import compute_manual_mfcc
 
 interpreter = tflite.Interpreter(model_path="model.tflite")
 interpreter.allocate_tensors()
@@ -11,7 +11,7 @@ output_details = interpreter.get_output_details()[0]
 
 
 def predict(audio):
-    mfcc = compute_mfcc(audio)
+    mfcc = compute_manual_mfcc(audio)
     mfcc = (mfcc + 11.5) * (110 / 65) - 30
 
     input_scale, input_zero_point = input_details['quantization']
