@@ -91,3 +91,5 @@ class SmartHomeUI:
 
     def start(self):
         self.root.mainloop()
+
+ui = SmartHomeUI()
