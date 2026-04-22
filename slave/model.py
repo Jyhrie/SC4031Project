@@ -12,13 +12,19 @@ output_details = interpreter.get_output_details()[0]
 
 def predict(audio):
     mfcc = compute_mfcc(audio)
-
     mfcc = (mfcc + 11.5) * (110 / 65) - 30
 
-    mfcc = mfcc[np.newaxis, ..., np.newaxis].astype(np.int8)
+    input_scale, input_zero_point = input_details['quantization']
+    output_scale, output_zero_point = output_details['quantization']
 
-    interpreter.set_tensor(input_details["index"], mfcc)
+    mfcc_quantized = (mfcc / input_scale) + input_zero_point
+    mfcc_quantized = np.clip(mfcc_quantized, -128, 127)
+    mfcc_quantized = mfcc_quantized[np.newaxis, ..., np.newaxis].astype(np.int8)
+
+    interpreter.set_tensor(input_details['index'], mfcc_quantized)
     interpreter.invoke()
 
-    output = interpreter.get_tensor(output_details["index"])
-    return float(output[0][0])
+    output_data = interpreter.get_tensor(output_details['index'])
+    prob = (output_data[0][0].astype(np.float32) - output_zero_point) * output_scale
+
+    return prob
