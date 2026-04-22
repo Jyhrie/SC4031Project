@@ -29,3 +29,6 @@ with sd.InputStream(
 
     while True:
         sd.sleep(1000)
+
+
+ui.start()
